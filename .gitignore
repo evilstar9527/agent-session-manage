@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+convert-sessions/
+.tmp-sessions/
+*.log
+out_show.json
+.DS_Store
