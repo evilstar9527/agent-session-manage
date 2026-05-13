@@ -1,6 +1,7 @@
 node_modules/
 dist/
 out/
+release/
 convert-sessions/
 .tmp-sessions/
 *.log
