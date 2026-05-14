@@ -26,6 +26,18 @@ It is designed for people who use multiple agent CLIs across many worktrees and 
 
 The desktop app is built with Electron, React, and Vite.
 
+Install the latest macOS arm64 release from the command line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/evilstar9527/agent-session-manage/main/install.sh | bash
+```
+
+Then open it:
+
+```bash
+open "/Applications/Agent Session Manage.app"
+```
+
 Main workflows:
 
 - Search all indexed sessions. Leaving the search box empty shows all sessions.
