@@ -6,11 +6,12 @@ import { pathToClaudeProjectBucket } from '../utils/paths.js';
 
 export interface ClaudeMaterialization {
   sessionFile: string;
+  sessionId: string;
   historyFile?: string;
 }
 
 export async function materializeClaudeSession(session: CanonicalSession, outputPath: string): Promise<ClaudeMaterialization> {
-  const targetSessionId = normalizeClaudeSessionId(session.sourceSessionId);
+  const targetSessionId = session.source === 'claude' ? normalizeClaudeSessionId(session.sourceSessionId) : randomUUID();
   const target = outputPath.endsWith('.jsonl')
     ? { sessionFile: outputPath }
     : {
@@ -26,103 +27,157 @@ export async function materializeClaudeSession(session: CanonicalSession, output
   await mkdir(path.dirname(target.sessionFile), { recursive: true });
 
   const lines: string[] = [];
-  let previousUuid: string | undefined;
+  const permissionMode = 'default';
+  const startedAt = session.createdAt || new Date().toISOString();
+  let previousUuid: string | null = null;
+  let sawUserMessage = false;
+
+  lines.push(JSON.stringify({
+    type: 'permission-mode',
+    permissionMode,
+    sessionId: targetSessionId,
+  }));
 
   for (const message of session.messages) {
-    const uuid = randomUUID();
+    if (message.role === 'system' || message.role === 'tool') {
+      continue;
+    }
 
-    if (message.role === 'tool') {
-      const toolUseId = readString(message.metadata?.['callId']) || message.id;
-      const isError = Boolean(message.metadata?.['isError']);
-      const line = {
-        parentUuid: previousUuid,
-        isSidechain: false,
-        userType: 'external',
-        cwd: session.projectPath || '.',
-        sessionId: targetSessionId,
-        version: readString(session.metadata['version']) || 'agent-session-manage',
-        gitBranch: session.git.branch || 'HEAD',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: toolUseId,
-              content: message.toolResult ?? message.text ?? '',
-              is_error: isError,
-            },
-          ],
-        },
-        uuid,
-        timestamp: message.timestamp || new Date().toISOString(),
-      };
-      lines.push(JSON.stringify(line));
-      previousUuid = uuid;
+    const text = (message.text || '').trim();
+    if (!text) {
+      continue;
+    }
+
+    const uuid = randomUUID();
+    const timestamp = message.timestamp || new Date().toISOString();
+
+    if (!sawUserMessage && message.role !== 'user') {
       continue;
     }
 
     if (message.role === 'user') {
+      if (!sawUserMessage) {
+        lines.push(JSON.stringify({
+          type: 'file-history-snapshot',
+          messageId: uuid,
+          snapshot: {
+            messageId: uuid,
+            trackedFileBackups: {},
+            timestamp,
+          },
+          isSnapshotUpdate: false,
+        }));
+      }
+
       const line = {
         parentUuid: previousUuid,
         isSidechain: false,
+        promptId: randomUUID(),
+        type: 'user',
+        message: {
+          role: 'user',
+          content: text,
+        },
+        uuid,
+        timestamp,
+        permissionMode,
         userType: 'external',
+        entrypoint: 'cli',
         cwd: session.projectPath || '.',
         sessionId: targetSessionId,
         version: readString(session.metadata['version']) || 'agent-session-manage',
         gitBranch: session.git.branch || 'HEAD',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: message.text || '',
-        },
-        uuid,
-        timestamp: message.timestamp || new Date().toISOString(),
       };
       lines.push(JSON.stringify(line));
+      if (!sawUserMessage) {
+        lines.push(JSON.stringify({
+          type: 'ai-title',
+          aiTitle: session.title || text.slice(0, 80) || 'Imported session',
+          sessionId: targetSessionId,
+        }));
+        sawUserMessage = true;
+      }
       previousUuid = uuid;
       continue;
     }
 
-    const toolBlocks = session.toolCalls
-      .filter(toolCall => toolCall.messageId === message.id && toolCall.input !== undefined)
-      .map(toolCall => {
-        return {
-          type: 'tool_use',
-          id: toolCall.id,
-          name: toolCall.name,
-          input: toolCall.input,
-          caller: { type: 'direct' },
-        };
-      });
-
-    const content = [
-      ...(message.text ? [{ type: 'text', text: message.text }] : []),
-      ...toolBlocks,
-    ];
-
     const line = {
       parentUuid: previousUuid,
       isSidechain: false,
+      message: {
+        model: readString(session.metadata['model']) || 'claude-sonnet-4-6',
+        id: `msg_${randomUUID().replaceAll('-', '')}`,
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: {
+          input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          output_tokens: 0,
+          server_tool_use: {
+            web_search_requests: 0,
+            web_fetch_requests: 0,
+          },
+          service_tier: 'standard',
+          cache_creation: {
+            ephemeral_1h_input_tokens: 0,
+            ephemeral_5m_input_tokens: 0,
+          },
+        },
+      },
+      type: 'assistant',
+      uuid,
+      timestamp,
       userType: 'external',
+      entrypoint: 'cli',
       cwd: session.projectPath || '.',
       sessionId: targetSessionId,
       version: readString(session.metadata['version']) || 'agent-session-manage',
       gitBranch: session.git.branch || 'HEAD',
-      type: 'assistant',
-      message: {
-        id: `msg_${randomUUID().replaceAll('-', '')}`,
-        type: 'message',
-        role: 'assistant',
-        content,
-        stop_reason: toolBlocks.length > 0 ? 'tool_use' : null,
-        stop_sequence: null,
-      },
-      uuid,
-      timestamp: message.timestamp || new Date().toISOString(),
     };
     lines.push(JSON.stringify(line));
     previousUuid = uuid;
+  }
+
+  if (!sawUserMessage) {
+    const uuid = randomUUID();
+    lines.push(JSON.stringify({
+      type: 'file-history-snapshot',
+      messageId: uuid,
+      snapshot: {
+        messageId: uuid,
+        trackedFileBackups: {},
+        timestamp: startedAt,
+      },
+      isSnapshotUpdate: false,
+    }));
+    lines.push(JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      promptId: randomUUID(),
+      type: 'user',
+      message: {
+        role: 'user',
+        content: session.title || 'Imported session',
+      },
+      uuid,
+      timestamp: startedAt,
+      permissionMode,
+      userType: 'external',
+      entrypoint: 'cli',
+      cwd: session.projectPath || '.',
+      sessionId: targetSessionId,
+      version: readString(session.metadata['version']) || 'agent-session-manage',
+      gitBranch: session.git.branch || 'HEAD',
+    }));
+    lines.push(JSON.stringify({
+      type: 'ai-title',
+      aiTitle: session.title || 'Imported session',
+      sessionId: targetSessionId,
+    }));
   }
 
   await writeFile(target.sessionFile, lines.join('\n') + (lines.length > 0 ? '\n' : ''), 'utf8');
@@ -139,7 +194,7 @@ export async function materializeClaudeSession(session: CanonicalSession, output
     await writeFile(target.historyFile, `${historyLine}\n`, { encoding: 'utf8', flag: 'a' });
   }
 
-  return target;
+  return { ...target, sessionId: targetSessionId };
 }
 
 function normalizeClaudeSessionId(candidate: string): string {

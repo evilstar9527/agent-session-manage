@@ -28,5 +28,5 @@ export function normalizeProjectPath(input: string): string {
 }
 
 export function pathToClaudeProjectBucket(projectPath: string): string {
-  return normalizeProjectPath(projectPath).replace(/[/\\.]/g, '-');
+  return normalizeProjectPath(projectPath).replace(/[^A-Za-z0-9-]/g, '-');
 }

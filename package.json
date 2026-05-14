@@ -1,6 +1,6 @@
 {
   "name": "agent-session-manage",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Desktop and CLI tool for browsing, converting, exporting, deleting, and resuming Claude Code and Codex sessions.",
   "author": "evilstar9527",
   "private": true,

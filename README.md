@@ -4,15 +4,20 @@ Agent Session Manage is a local desktop and CLI tool for browsing, searching, re
 
 It is designed for people who use multiple agent CLIs across many worktrees and need a practical way to find old context, reopen a conversation, or move a session between tools.
 
+![Agent Session Manage desktop UI](docs/app-overview.png)
+
 ## Features
 
-- Scan local Claude Code and Codex session files.
+- Scan local Claude Code and Codex session files automatically on startup.
+- Watch local Claude/Codex session directories and refresh the index when files change.
 - Store session metadata, messages, and tool calls in a local SQLite index.
 - Search sessions by title, path, branch, source, session id, or message text.
 - Group sessions by project/worktree path in the desktop UI.
 - Collapse or expand each worktree group.
+- Pin important sessions so they stay at the top of the list.
 - Inspect session metadata, messages, and tool activity.
-- Resume a native Claude or Codex session from the desktop app.
+- Resume a session as Claude or Codex from the desktop app.
+- Open resume commands in macOS Terminal or Ghostty.
 - Export a session to Markdown.
 - Convert sessions between Claude and Codex formats.
 - Delete a session from the local index without deleting the original JSONL file.
@@ -24,11 +29,32 @@ The desktop app is built with Electron, React, and Vite.
 Main workflows:
 
 - Search all indexed sessions. Leaving the search box empty shows all sessions.
-- Scan local session directories and refresh the index.
+- Let the app auto-scan at startup, or use `Search` to refresh the local index manually.
 - Browse sessions grouped by worktree path.
+- Use the `Pin` button on a session card to keep it near the top of the list.
 - Switch between `Session Detail` and `Messages` tabs.
-- Resume the selected session in the native CLI.
-- Export, convert, or delete the selected indexed session.
+- Choose `System` or `Ghostty` in the `Terminal` switcher.
+- Resume the selected session with Claude or Codex.
+- Export or delete the selected indexed session.
+
+### First Run
+
+1. Install dependencies and start the desktop app:
+
+```bash
+npm install
+npm run dev:desktop
+```
+
+2. On startup, the app scans local Claude and Codex session directories and imports changed files into:
+
+```text
+~/.agent-session-manage/index.sqlite
+```
+
+3. Leave the search box empty to show all indexed sessions, or type a title/path/branch/source/session id/message term to filter.
+
+4. New or updated Claude/Codex JSONL files are detected by the desktop watcher and imported automatically.
 
 Resume behavior:
 
@@ -45,6 +71,14 @@ cd <project-path> && claude --resume <session-id>
 ```
 
 On macOS, the app opens Terminal and starts the resume command there.
+
+If `Ghostty` is selected, the app launches:
+
+```bash
+open -na Ghostty.app --args -e zsh -lc '<resume-command>'
+```
+
+The selected terminal is saved in browser local storage and reused on the next launch.
 
 ## CLI
 

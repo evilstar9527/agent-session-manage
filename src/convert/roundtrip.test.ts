@@ -55,5 +55,21 @@ test('materializeClaudeSession writes transcript and history', async () => {
   assert.match(history, /sessionId/);
 
   const transcript = await readFile(result.sessionFile, 'utf8');
-  assert.match(transcript, /tool_result/);
+  assert.match(transcript, /permission-mode/);
+  assert.match(transcript, /file-history-snapshot/);
+  assert.match(transcript, /I will read a file/);
+});
+
+test('materializeClaudeSession creates a Claude-compatible id for Codex sessions', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'asm-claude-codex-'));
+  const result = await materializeClaudeSession({
+    ...session,
+    id: 'codex:019e1b99-7b1f-7ef2-84fb-0fb059b394ca',
+    source: 'codex',
+    sourceSessionId: '019e1b99-7b1f-7ef2-84fb-0fb059b394ca',
+  }, dir);
+
+  assert.notEqual(result.sessionId, '019e1b99-7b1f-7ef2-84fb-0fb059b394ca');
+  assert.match(result.sessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.equal(path.basename(result.sessionFile), `${result.sessionId}.jsonl`);
 });

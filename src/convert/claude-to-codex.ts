@@ -5,6 +5,7 @@ import type { CanonicalSession } from '../model/session.js';
 
 export interface CodexMaterialization {
   sessionFile: string;
+  sessionId: string;
 }
 
 export async function materializeCodexSession(session: CanonicalSession, outputPath: string): Promise<CodexMaterialization> {
@@ -102,7 +103,7 @@ export async function materializeCodexSession(session: CanonicalSession, outputP
     );
   }
 
-  return { sessionFile: targetFile };
+  return { sessionFile: targetFile, sessionId };
 }
 
 function stringifyMaybeJson(value: unknown): string {

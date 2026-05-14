@@ -49,6 +49,7 @@ export interface CanonicalSession {
   updatedAt?: string;
   git: CanonicalGitInfo;
   archived: boolean;
+  pinnedAt?: string;
   tags: string[];
   messages: CanonicalMessage[];
   attachments: string[];
@@ -68,6 +69,7 @@ export interface SessionPreview {
   updatedAt?: string;
   gitBranch?: string;
   archived: boolean;
+  pinnedAt?: string;
   messageCount: number;
   toolCallCount: number;
 }

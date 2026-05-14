@@ -18,6 +18,7 @@ interface SearchRow {
   updated_at: string | null;
   git_branch: string | null;
   archived: number;
+  pinned_at: string | null;
   message_count: number;
   tool_call_count: number;
 }
@@ -36,6 +37,7 @@ interface SessionRow {
   git_sha: string | null;
   git_origin_url: string | null;
   archived: number;
+  pinned_at: string | null;
   tags_json: string;
   attachments_json: string;
   tool_calls_json: string;
@@ -67,6 +69,7 @@ export class SessionRepository {
     for (const statement of schemaStatements) {
       this.db.exec(statement);
     }
+    this.migrate();
   }
 
   close(): void {
@@ -98,11 +101,11 @@ export class SessionRepository {
       this.db.prepare(`
         INSERT INTO sessions (
           id, source, source_session_id, source_path, project_path, title, summary, created_at, updated_at,
-          git_branch, git_sha, git_origin_url, archived, tags_json, attachments_json, tool_calls_json,
+          git_branch, git_sha, git_origin_url, archived, pinned_at, tags_json, attachments_json, tool_calls_json,
           metadata_json, message_count, tool_call_count, fingerprint_size, fingerprint_mtime_ms,
           fingerprint_hash, imported_at
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
         ON CONFLICT(id) DO UPDATE SET
           source = excluded.source,
@@ -117,6 +120,7 @@ export class SessionRepository {
           git_sha = excluded.git_sha,
           git_origin_url = excluded.git_origin_url,
           archived = excluded.archived,
+          pinned_at = COALESCE(sessions.pinned_at, excluded.pinned_at),
           tags_json = excluded.tags_json,
           attachments_json = excluded.attachments_json,
           tool_calls_json = excluded.tool_calls_json,
@@ -141,6 +145,7 @@ export class SessionRepository {
         session.git.sha ?? null,
         session.git.originUrl ?? null,
         session.archived ? 1 : 0,
+        session.pinnedAt ?? null,
         JSON.stringify(session.tags),
         JSON.stringify(session.attachments),
         JSON.stringify(session.toolCalls),
@@ -210,24 +215,10 @@ export class SessionRepository {
 
   listSessions(limit?: number): SessionPreview[] {
     const query = limit
-      ? 'SELECT * FROM sessions ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ?'
-      : 'SELECT * FROM sessions ORDER BY COALESCE(updated_at, created_at) DESC';
+      ? `SELECT * FROM sessions ${sessionOrderClause()} LIMIT ?`
+      : `SELECT * FROM sessions ${sessionOrderClause()}`;
     const rows = (limit ? this.db.prepare(query).all(limit) : this.db.prepare(query).all()) as unknown as SessionRow[];
-    return rows.map(row => ({
-      id: row.id,
-      source: row.source,
-      sourceSessionId: row.source_session_id,
-      sourcePath: row.source_path,
-      projectPath: row.project_path ?? undefined,
-      title: row.title ?? undefined,
-      summary: row.summary ?? undefined,
-      createdAt: row.created_at ?? undefined,
-      updatedAt: row.updated_at ?? undefined,
-      gitBranch: row.git_branch ?? undefined,
-      archived: row.archived === 1,
-      messageCount: row.message_count,
-      toolCallCount: row.tool_call_count,
-    }));
+    return rows.map(toPreview);
   }
 
   searchSessions(query: string, limit = 20): SessionPreview[] {
@@ -245,6 +236,7 @@ export class SessionRepository {
         s.updated_at,
         s.git_branch,
         s.archived,
+        s.pinned_at,
         s.message_count,
         s.tool_call_count
       FROM sessions s
@@ -257,25 +249,11 @@ export class SessionRepository {
         s.project_path LIKE ? OR
         s.source_path LIKE ? OR
         m.text LIKE ?
-      ORDER BY COALESCE(s.updated_at, s.created_at) DESC
+      ${sessionOrderClause('s')}
       LIMIT ?
     `).all(like, like, like, like, like, like, like, limit) as unknown as SearchRow[];
 
-    return rows.map(row => ({
-      id: row.id,
-      source: row.source,
-      sourceSessionId: row.source_session_id,
-      sourcePath: row.source_path,
-      projectPath: row.project_path ?? undefined,
-      title: row.title ?? undefined,
-      summary: row.summary ?? undefined,
-      createdAt: row.created_at ?? undefined,
-      updatedAt: row.updated_at ?? undefined,
-      gitBranch: row.git_branch ?? undefined,
-      archived: row.archived === 1,
-      messageCount: row.message_count,
-      toolCallCount: row.tool_call_count,
-    }));
+    return rows.map(toPreview);
   }
 
   addTag(sessionId: string, tag: string): boolean {
@@ -291,6 +269,12 @@ export class SessionRepository {
 
   setArchived(sessionId: string, archived: boolean): boolean {
     const result = this.db.prepare('UPDATE sessions SET archived = ? WHERE id = ?').run(archived ? 1 : 0, sessionId);
+    return result.changes > 0;
+  }
+
+  setPinned(sessionId: string, pinned: boolean): boolean {
+    const pinnedAt = pinned ? new Date().toISOString() : null;
+    const result = this.db.prepare('UPDATE sessions SET pinned_at = ? WHERE id = ?').run(pinnedAt, sessionId);
     return result.changes > 0;
   }
 
@@ -339,6 +323,7 @@ export class SessionRepository {
         originUrl: row.git_origin_url ?? undefined,
       },
       archived: row.archived === 1,
+      pinnedAt: row.pinned_at ?? undefined,
       tags: JSON.parse(row.tags_json) as string[],
       attachments: JSON.parse(row.attachments_json) as string[],
       toolCalls: JSON.parse(row.tool_calls_json),
@@ -362,8 +347,39 @@ export class SessionRepository {
     const rows = this.db.prepare('SELECT tag FROM tags WHERE session_id = ? ORDER BY tag ASC').all(sessionId) as unknown as Array<{ tag: string }>;
     this.db.prepare('UPDATE sessions SET tags_json = ? WHERE id = ?').run(JSON.stringify(rows.map(row => row.tag)), sessionId);
   }
+
+  private migrate(): void {
+    const columns = this.db.prepare('PRAGMA table_info(sessions)').all() as unknown as Array<{ name: string }>;
+    if (!columns.some(column => column.name === 'pinned_at')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN pinned_at TEXT');
+    }
+  }
 }
 
 function sourcePathOrId(session: CanonicalSession): string {
   return session.sourcePath;
+}
+
+function sessionOrderClause(alias?: string): string {
+  const prefix = alias ? `${alias}.` : '';
+  return `ORDER BY ${prefix}pinned_at IS NULL ASC, ${prefix}pinned_at DESC, COALESCE(${prefix}updated_at, ${prefix}created_at) DESC`;
+}
+
+function toPreview(row: SearchRow | SessionRow): SessionPreview {
+  return {
+    id: row.id,
+    source: row.source,
+    sourceSessionId: row.source_session_id,
+    sourcePath: row.source_path,
+    projectPath: row.project_path ?? undefined,
+    title: row.title ?? undefined,
+    summary: row.summary ?? undefined,
+    createdAt: row.created_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
+    gitBranch: row.git_branch ?? undefined,
+    archived: row.archived === 1,
+    pinnedAt: row.pinned_at ?? undefined,
+    messageCount: row.message_count,
+    toolCallCount: row.tool_call_count,
+  };
 }

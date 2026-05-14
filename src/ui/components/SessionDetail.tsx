@@ -4,14 +4,12 @@ import type { CanonicalMessage, CanonicalSession, CanonicalToolCall } from '../.
 interface SessionDetailProps {
   session?: CanonicalSession;
   loading: boolean;
-  message?: string;
-  error?: string;
+  onResumeAs: (target: 'claude' | 'codex') => Promise<void>;
   onExport: () => void;
-  onConvert: () => void;
   onDelete: () => Promise<void>;
 }
 
-export function SessionDetail({ session, loading, message, error, onExport, onConvert, onDelete }: SessionDetailProps): React.JSX.Element {
+export function SessionDetail({ session, loading, onResumeAs, onExport, onDelete }: SessionDetailProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<'overview' | 'messages'>('overview');
 
   if (!session) {
@@ -46,7 +44,7 @@ export function SessionDetail({ session, loading, message, error, onExport, onCo
       </div>
 
       {activeTab === 'overview'
-        ? <OverviewTab session={session} loading={loading} message={message} error={error} onExport={onExport} onConvert={onConvert} onDelete={onDelete} />
+        ? <OverviewTab session={session} loading={loading} onResumeAs={onResumeAs} onExport={onExport} onDelete={onDelete} />
         : <MessagesTab session={session} />}
     </div>
   );
@@ -55,18 +53,14 @@ export function SessionDetail({ session, loading, message, error, onExport, onCo
 function OverviewTab({
   session,
   loading,
-  message,
-  error,
+  onResumeAs,
   onExport,
-  onConvert,
   onDelete,
 }: {
   session: CanonicalSession;
   loading: boolean;
-  message?: string;
-  error?: string;
+  onResumeAs: (target: 'claude' | 'codex') => Promise<void>;
   onExport: () => void;
-  onConvert: () => void;
   onDelete: () => Promise<void>;
 }): React.JSX.Element {
   return (
@@ -86,10 +80,8 @@ function OverviewTab({
         <div className="detail-chip-row">
           <span className="meta-pill">{session.messages.length} messages</span>
           <span className="meta-pill">{session.toolCalls.length} tool calls</span>
+          {session.pinnedAt && <span className="meta-pill meta-pill-pinned">Pinned</span>}
           <span className="meta-pill">{session.archived ? 'Archived' : 'Active'}</span>
-          {session.tags.map(tag => (
-            <span key={tag} className="tag-pill">{tag}</span>
-          ))}
         </div>
 
         <div className="detail-meta-grid">
@@ -102,25 +94,21 @@ function OverviewTab({
         </div>
 
         <div className="detail-actions-row">
-          <button className="button button-primary" onClick={() => void window.desktopApi.launchResume(session.id)}>
-            Resume
+          <button className="button button-primary" onClick={() => void onResumeAs('claude')}>
+            Resume Claude
+          </button>
+          <button className="button button-primary button-codex" onClick={() => void onResumeAs('codex')}>
+            Resume Codex
           </button>
           <button className="button button-secondary" onClick={onExport}>
             Export
-          </button>
-          <button className="button button-secondary" onClick={onConvert}>
-            Convert
           </button>
           <button className="button button-danger" onClick={() => void onDelete()}>
             Delete
           </button>
         </div>
 
-        {(loading || message || error) && (
-          <div className="inline-notice-row">
-            <span className={`notice-inline${error ? ' is-error' : ''}`}>{error || message || 'Loading...'}</span>
-          </div>
-        )}
+        {loading && <span className="notice-inline">Loading...</span>}
       </section>
 
       <section className="content-section compact-summary-grid">

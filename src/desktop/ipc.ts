@@ -10,8 +10,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('sessions:addTag', (_event, id: string, tag: string) => sessionService.addTag(id, tag));
   ipcMain.handle('sessions:archive', (_event, id: string) => sessionService.archive(id));
   ipcMain.handle('sessions:delete', (_event, id: string) => sessionService.delete(id));
+  ipcMain.handle('sessions:pin', (_event, id: string, pinned: boolean) => sessionService.pin(id, pinned));
   ipcMain.handle('sessions:resumeCommand', (_event, id: string) => sessionService.getResumeCommand(id));
-  ipcMain.handle('sessions:launchResume', (_event, id: string) => sessionService.launchResume(id));
+  ipcMain.handle('sessions:launchResume', (_event, id: string, terminal?: 'system' | 'ghostty') => sessionService.launchResume(id, terminal));
+  ipcMain.handle('sessions:launchResumeAs', (_event, id: string, target: 'claude' | 'codex', terminal?: 'system' | 'ghostty') =>
+    sessionService.launchResumeAs({ id, target, terminal }),
+  );
   ipcMain.handle('sessions:exportMarkdown', (_event, id: string, outputPath: string) => sessionService.exportMarkdown(id, outputPath));
   ipcMain.handle('sessions:convert', (_event, input: string, target: 'claude' | 'codex', outputPath: string) =>
     sessionService.convert({ input, target, outputPath }),

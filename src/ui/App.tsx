@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { CanonicalSession, SessionPreview } from '../model/session.js';
-import { ConvertDialog } from './components/ConvertDialog.js';
 import { ExportDialog } from './components/ExportDialog.js';
 import { SessionDetail } from './components/SessionDetail.js';
 import { SessionList } from './components/SessionList.js';
@@ -11,10 +10,10 @@ export function App(): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [selectedSession, setSelectedSession] = useState<CanonicalSession | undefined>();
   const [query, setQuery] = useState('');
+  const [terminal, setTerminal] = useState<'system' | 'ghostty'>(() => readTerminalPreference());
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [showConvert, setShowConvert] = useState(false);
   const [showExport, setShowExport] = useState(false);
 
   const selectedPreview = useMemo(() => sessions.find(session => session.id === selectedId), [sessions, selectedId]);
@@ -32,6 +31,23 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void loadSessions();
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = getDesktopApi().onIndexUpdated(event => {
+      void (async () => {
+        await loadSessions();
+        if (event.status === 'error') {
+          setError(`Session index update failed: ${event.message || 'unknown error'}`);
+          return;
+        }
+        if ((event.imported || 0) > 0) {
+          setMessage(`Imported ${event.imported} updated session${event.imported === 1 ? '' : 's'}.`);
+        }
+      })();
+    });
+
+    return unsubscribe;
+  }, [query, selectedId]);
 
   useEffect(() => {
     if (!message && !error) {
@@ -107,6 +123,43 @@ export function App(): React.JSX.Element {
     }
   }
 
+  async function handlePin(id: string, pinned: boolean): Promise<void> {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const changed = await getDesktopApi().pinSession(id, pinned);
+      if (changed) {
+        setMessage(pinned ? 'Pinned session' : 'Unpinned session');
+        await loadSessions();
+        if (selectedId === id) {
+          const session = await getDesktopApi().get(id);
+          setSelectedSession(session);
+        }
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResumeAs(target: 'claude' | 'codex'): Promise<void> {
+    if (!selectedId) {
+      return;
+    }
+
+    setLoading(true);
+    setError(undefined);
+    try {
+      const resume = await getDesktopApi().launchResumeAs(selectedId, target, terminal);
+      setMessage(`Opened ${resume.source} resume for ${resume.sessionId}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <div className="app-layout">
@@ -120,6 +173,11 @@ export function App(): React.JSX.Element {
             totalMessages={totalMessages}
             focusSource={selectedPreview?.source}
             focusBranch={selectedPreview?.gitBranch}
+            terminal={terminal}
+            onTerminalChange={nextTerminal => {
+              setTerminal(nextTerminal);
+              window.localStorage.setItem('agent-session-manage:terminal', nextTerminal);
+            }}
             onQueryChange={async nextQuery => {
               setQuery(nextQuery);
               await loadSessions(nextQuery);
@@ -130,28 +188,18 @@ export function App(): React.JSX.Element {
 
         <section className="workspace-grid">
           <div className="panel">
-            <SessionList sessions={sessions} selectedId={selectedId} onSelect={setSelectedId} loading={loading} query={query} />
+            <SessionList sessions={sessions} selectedId={selectedId} onSelect={setSelectedId} onPin={handlePin} loading={loading} query={query} />
           </div>
           <div className="panel">
             <SessionDetail
               session={selectedSession}
               loading={loading}
-              message={message}
-              error={error}
+              onResumeAs={handleResumeAs}
               onExport={() => setShowExport(true)}
-              onConvert={() => setShowConvert(true)}
               onDelete={handleDelete}
             />
           </div>
         </section>
-
-        {showConvert && selectedPreview && (
-          <ConvertDialog
-            sessionId={selectedPreview.id}
-            onClose={() => setShowConvert(false)}
-            onComplete={value => setMessage(`Converted to ${value}`)}
-          />
-        )}
 
         {showExport && selectedPreview && (
           <ExportDialog
@@ -169,4 +217,9 @@ export function App(): React.JSX.Element {
       </div>
     </div>
   );
+}
+
+function readTerminalPreference(): 'system' | 'ghostty' {
+  const value = window.localStorage.getItem('agent-session-manage:terminal');
+  return value === 'ghostty' ? 'ghostty' : 'system';
 }

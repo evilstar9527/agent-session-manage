@@ -254,6 +254,16 @@ button {
   background: var(--accent-strong);
 }
 
+.button-codex {
+  background: #0f766e;
+  border-color: #0f766e;
+  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.18);
+}
+
+.button-codex:hover:not(:disabled) {
+  background: #115e59;
+}
+
 .button-secondary {
   background: #f8fafc;
 }
@@ -284,6 +294,51 @@ button {
 
 .toolbar-summary {
   justify-content: flex-start;
+}
+
+.terminal-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.12);
+}
+
+.terminal-label {
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.terminal-option {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.terminal-option:hover {
+  background: #dbeafe;
+}
+
+.terminal-option.is-active {
+  color: #ffffff;
+  background: var(--accent);
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.2);
+}
+
+.terminal-option-ghostty.is-active {
+  background: #0f766e;
+  box-shadow: 0 6px 14px rgba(15, 118, 110, 0.22);
 }
 
 .text-input,
@@ -418,8 +473,7 @@ button {
 .meta-pill,
 .badge,
 .role-pill,
-.status-pill,
-.tag-pill {
+.status-pill {
   display: inline-flex;
   align-items: center;
   min-height: 26px;
@@ -435,6 +489,12 @@ button {
 
 .meta-pill {
   background: #f8fafc;
+}
+
+.meta-pill-pinned {
+  color: #b45309;
+  background: #fffbeb;
+  border-color: #fde68a;
 }
 
 .badge-source-claude {
@@ -591,6 +651,46 @@ button {
   justify-content: space-between;
 }
 
+.session-card-badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pin-button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.12);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pin-button:hover {
+  color: #ffffff;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.pin-button.is-pinned {
+  color: #ffffff;
+  background: #d97706;
+  border-color: #d97706;
+  box-shadow: 0 8px 18px rgba(217, 119, 6, 0.24);
+}
+
+.pin-button.is-pinned:hover {
+  background: #b45309;
+  border-color: #b45309;
+}
+
 .session-card-title {
   font-size: 15px;
   line-height: 1.35;
@@ -739,10 +839,6 @@ button {
   font-size: 11px;
   color: var(--muted-strong);
   word-break: break-word;
-}
-
-.inline-notice-row {
-  margin-top: 14px;
 }
 
 .detail-actions-row {

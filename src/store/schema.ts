@@ -13,6 +13,7 @@ export const schemaStatements = [
     git_sha TEXT,
     git_origin_url TEXT,
     archived INTEGER NOT NULL,
+    pinned_at TEXT,
     tags_json TEXT NOT NULL,
     attachments_json TEXT NOT NULL,
     tool_calls_json TEXT NOT NULL,

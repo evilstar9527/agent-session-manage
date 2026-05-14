@@ -8,11 +8,13 @@ import { parseClaudeSession } from '../parsers/claude.js';
 import { parseCodexSession } from '../parsers/codex.js';
 import { SessionRepository } from '../store/repo.js';
 import { detectJsonlSource } from '../utils/detect.js';
-import { getDatabasePath } from '../utils/paths.js';
+import { getClaudeHome, getCodexHome, getDatabasePath } from '../utils/paths.js';
 import { materializeCodexSession } from '../convert/claude-to-codex.js';
 import { materializeClaudeSession } from '../convert/codex-to-claude.js';
 
 const execFileAsync = promisify(execFile);
+type ScanResult = { discovered: number; imported: number; skipped: number };
+export type TerminalApp = 'system' | 'ghostty';
 
 export interface ConvertRequest {
   input: string;
@@ -27,12 +29,33 @@ export interface ResumeCommand {
   sessionId: string;
 }
 
+export interface ResumeRequest {
+  id: string;
+  target?: 'claude' | 'codex';
+  terminal?: TerminalApp;
+}
+
 export class SessionService {
+  private scanPromise?: Promise<ScanResult>;
+
   private createRepo(): SessionRepository {
     return new SessionRepository(getDatabasePath());
   }
 
-  async scan(): Promise<{ discovered: number; imported: number; skipped: number }> {
+  async scan(): Promise<ScanResult> {
+    if (this.scanPromise) {
+      return this.scanPromise;
+    }
+
+    this.scanPromise = this.runScan();
+    try {
+      return await this.scanPromise;
+    } finally {
+      this.scanPromise = undefined;
+    }
+  }
+
+  private async runScan(): Promise<ScanResult> {
     const repo = this.createRepo();
     try {
       return await scanSessions(repo);
@@ -95,6 +118,15 @@ export class SessionService {
     }
   }
 
+  pin(id: string, pinned: boolean): boolean {
+    const repo = this.createRepo();
+    try {
+      return repo.setPinned(id, pinned);
+    } finally {
+      repo.close();
+    }
+  }
+
   getResumeCommand(id: string): ResumeCommand {
     const session = this.get(id);
     if (!session) {
@@ -102,29 +134,29 @@ export class SessionService {
     }
 
     const sessionId = session.sourceSessionId || session.id.replace(/^(claude|codex):/, '');
-    const cwd = session.projectPath;
-
-    if (session.source === 'codex') {
-      return {
-        source: session.source,
-        command: ['codex', 'resume', ...(cwd ? ['--cd', cwd] : []), sessionId].map(shellQuote).join(' '),
-        cwd,
-        sessionId,
-      };
-    }
-
-    const resume = ['claude', '--resume', sessionId].map(shellQuote).join(' ');
-    return {
-      source: session.source,
-      command: cwd ? `cd ${shellQuote(cwd)} && ${resume}` : resume,
-      cwd,
-      sessionId,
-    };
+    return buildResumeCommand(session.source, sessionId, session.projectPath);
   }
 
-  async launchResume(id: string): Promise<ResumeCommand> {
+  async getResumeAsCommand(request: ResumeRequest): Promise<ResumeCommand> {
+    const session = this.get(request.id);
+    if (!session) {
+      throw new Error(`session not found: ${request.id}`);
+    }
+
+    const target = request.target || session.source;
+    const sessionId = await this.materializeForResume(session, target);
+    return buildResumeCommand(target, sessionId, session.projectPath);
+  }
+
+  async launchResume(id: string, terminal: TerminalApp = 'system'): Promise<ResumeCommand> {
     const resume = this.getResumeCommand(id);
-    await openCommandInTerminal(resume.command);
+    await openCommandInTerminal(resume.command, terminal);
+    return resume;
+  }
+
+  async launchResumeAs(request: ResumeRequest): Promise<ResumeCommand> {
+    const resume = await this.getResumeAsCommand(request);
+    await openCommandInTerminal(resume.command, request.terminal ?? 'system');
     return resume;
   }
 
@@ -150,6 +182,20 @@ export class SessionService {
 
     const result = await materializeCodexSession(session, request.outputPath);
     return result.sessionFile;
+  }
+
+  private async materializeForResume(session: CanonicalSession, target: 'claude' | 'codex'): Promise<string> {
+    if (target === session.source) {
+      return session.sourceSessionId || session.id.replace(/^(claude|codex):/, '');
+    }
+
+    if (target === 'claude') {
+      const result = await materializeClaudeSession(session, getClaudeHome());
+      return result.sessionId;
+    }
+
+    const result = await materializeCodexSession(session, getCodexHome());
+    return result.sessionId;
   }
 
   async loadInput(input: string): Promise<CanonicalSession | undefined> {
@@ -180,8 +226,32 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-async function openCommandInTerminal(command: string): Promise<void> {
+function buildResumeCommand(source: 'claude' | 'codex', sessionId: string, cwd?: string): ResumeCommand {
+  if (source === 'codex') {
+    return {
+      source,
+      command: ['codex', 'resume', ...(cwd ? ['--cd', cwd] : []), sessionId].map(shellQuote).join(' '),
+      cwd,
+      sessionId,
+    };
+  }
+
+  const resume = ['claude', '--resume', sessionId].map(shellQuote).join(' ');
+  return {
+    source,
+    command: cwd ? `cd ${shellQuote(cwd)} && ${resume}` : resume,
+    cwd,
+    sessionId,
+  };
+}
+
+async function openCommandInTerminal(command: string, terminal: TerminalApp): Promise<void> {
   if (process.platform === 'darwin') {
+    if (terminal === 'ghostty') {
+      await execFileAsync('open', ['-na', 'Ghostty.app', '--args', '-e', 'zsh', '-lc', command]);
+      return;
+    }
+
     await execFileAsync('osascript', [
       '-e',
       `tell application "Terminal" to do script "${escapeAppleScriptString(command)}"`,
